@@ -1,67 +1,68 @@
-apiVersion: v1
-kind: Service
-metadata:
-  name: wordpress
-  labels:
-    app: wordpress
-spec:
-  ports:
-    - port: 80
-  selector:
-    app: wordpress
-    tier: frontend
-  type: LoadBalancer
 ---
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: wp-pv-claim
-  labels:
-    app: wordpress
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 20Gi
----
-apiVersion: apps/v1 #  for k8s versions before 1.9.0 use apps/v1beta2  and before 1.8.0 use extensions/v1beta1
+apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: wordpress
-  labels:
-    app: wordpress
+  name: wordpress-{{ .Values.name }}
 spec:
+  replicas: 2
   selector:
     matchLabels:
-      app: wordpress
-      tier: frontend
-  strategy:
-    type: Recreate
+      app: wordpress-{{ .Values.name }}
   template:
     metadata:
       labels:
-        app: wordpress
-        tier: frontend
+        app: wordpress-{{ .Values.name }}
     spec:
       containers:
-      - image: wordpress:5.8.3-php7.4-apache
-        name: wordpress
-        env:
-        - name: WORDPRESS_DB_HOST
-          value: wordpress-mysql
-        - name: WORDPRESS_DB_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: mysql-pass
-              key: password
-        ports:
-        - containerPort: 80
-          name: wordpress
-        volumeMounts:
-        - name: wordpress-persistent-storage
-          mountPath: /var/www/html
+        - name: wordpress
+          image: wordpress:5.8.3-php7.4-apache
+          ports:
+            - containerPort: 80
+              name: wordpress
+          volumeMounts:
+            - name: wordpress-data-{{ .Values.name }}
+              mountPath: /var/www/html
+          env:
+            - name: WORDPRESS_DB_HOST
+              value: mysql-service-{{ .Values.name }}
+            - name: WORDPRESS_DB_PASSWORD
+              value: {{ .Values.mysqlpassword }}
+            - name: WORDPRESS_DB_USER
+              value: root
+            - name: WORDPRESS_DB_NAME
+              value: mysql
       volumes:
-      - name: wordpress-persistent-storage
-        persistentVolumeClaim:
-          claimName: wp-pv-claim
+        - name: wordpress-data-{{ .Values.name }}
+          persistentVolumeClaim:
+            claimName: wordpress-pvc-{{ .Values.name }}
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: wordpress-service-{{ .Values.name }}
+spec:
+  type: ClusterIP
+  selector:
+    app: wordpress-{{ .Values.name }}
+  ports:
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: 80
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: wordpress-ingress-{{ .Values.name }}
+spec:
+  rules:
+  - host: {{ .Values.domainname }}
+    http:
+      paths:
+      - pathType: Prefix
+        path: "/"
+        backend:
+          service:
+            name: wordpress-service-{{ .Values.name }}
+            port:
+              number: 80
